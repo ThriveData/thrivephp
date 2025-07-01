@@ -1,0 +1,9 @@
+{
+	"site": {
+		"rootpath": "/var/www/sites/monitor"
+	},
+	"nginx": {
+		"sslcertpath": "/usr/local/etc/letsencrypt",
+		"sslkeypath": "/usr/local/etc/letsencrypt"
+	}
+}

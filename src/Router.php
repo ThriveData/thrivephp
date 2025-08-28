@@ -19,15 +19,6 @@
 	 */
 	class Router
 	{
-		/** Method in the web server's HTTP header (GET, POST, etc.). */
-		static $method;
-		
-		/** Host in the web server's HTTP header. */
-		static $host;
-		
-		/** Request URL in the server's HTTP header. */
-		static $url;
-		
 		/** Routes registered via Router::register(). */
 		static $routes = [];
 		
@@ -36,9 +27,7 @@
 		 */
 		static function init()
 		{
-			self::$url = $_SERVER['PATH_INFO'];
-			self::$method = $_SERVER['REQUEST_METHOD'];
-			self::$host = $_SERVER['HTTP_HOST'];
+			Request::init();
 			
 			$file = PATH_ROOT.'/routes.php';
 			if (is_readable($file)):
@@ -61,13 +50,19 @@
 		 */
 		static function call(string $host, string $url, string $method)
 		{
+			Log::debug("routing | host={$host} | url={$url} | method={$method} | routes=".count(self::$routes), debug_backtrace());
+			
+			if (count(self::$routes) == 0):
+				Log::debug('no routes', debug_backtrace());
+			endif;
+			
 			foreach(self::$routes as $host_regex => $host_routes):
 				if (preg_match($host_regex, $host, $host_matches)):
 					foreach ($host_routes ?? [] as $url_regex => $method_routes):
 						if (preg_match($url_regex, $url, $url_matches)):
 							foreach ($method_routes ?? [] as $method_regex => $route):
 								if (preg_match($method_regex, $method, $method_matches)):
-									Log::debug(sprintf('routing %s', $route->url), debug_backtrace());
+									Log::debug(sprintf('found route | regex=%s', $route->url), debug_backtrace());
 									try {
 										return ($route->callback)(
 											data: $_REQUEST,
@@ -96,7 +91,7 @@
 		 */
 		static function start()
 		{
-			self::call(host: self::$host, url: self::$url, method: self::$method);
+			self::call(host: Request::$host, url: Request::$url, method: Request::$method);
 		}
 	}
 	

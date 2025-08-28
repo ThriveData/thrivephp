@@ -13,21 +13,21 @@ create table public.users_roles (
 call public.provision('public.users_roles'::regclass);
 
 
-create table public.acl_keys (
+create table public.permissions (
 	id uuid not null primary key default gen_random_uuid(),
 	key text not null,
 	name text not null
 );
-call public.provision('public.acl_keys'::regclass);
+call public.provision('public.permissions'::regclass);
 
 
-create table public.acl_permissions (
+create table public.roles_permissions (
 	id uuid not null primary key default gen_random_uuid(),
-	role_id uuid not null references public.roles(id),
+	role_id text not null references public.roles(id),
 	key_id uuid not null references public.acl_keys(id),
 	permissions integer not null default 0
 );
-call public.provision('public.acl_permissions'::regclass);
+call public.provision('public.roles_permissions'::regclass);
 
 
 create or replace function public.permissions_compose(
@@ -71,3 +71,31 @@ begin
 	if (grants & b'100000'::bit(6) = b'100000'::bit(6)) then adm := true; else adm := false; end if;
 end;
 $function$;
+
+CREATE OR REPLACE FUNCTION public.permissions_check(key text, permissions bit, user_id uuid)
+RETURNS boolean LANGUAGE plpgsql AS $$
+begin
+	-- check for superuser
+	perform true from users as u where u.id=$3 and superuser is true;
+	
+	if (found) then
+		raise debug 'user is superuser';
+		return true;
+	end if;
+
+	-- check for user permissions
+	perform true
+	from public.roles_permissions as p
+		join public.permissions as k on (p.key_id = k.id)
+		join public.roles as r on (p.role_id = r.id)
+		join public.users_roles as ur on (ur.role_id = r.id)
+		join public.users as u on (ur.user_id = u.id)
+	where k.id=$1 and p.permissions & $2=$2 and u.id=$3;
+	
+	if (found) then
+		raise debug 'user with permissions found';
+		return true;
+	end if;
+
+	return false;
+end;$$;

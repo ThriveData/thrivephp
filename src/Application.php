@@ -31,18 +31,11 @@
 		static function setPathRoot(?string $path = null)
 		{
 			if (is_null($path)):
-				if (defined('PATH_ROOT')):
-					$path = PATH_ROOT;
-				else:
-					if (class_exists('\Composer\AutoLoad\ClassLoader')):
-						$reflection = new \ReflectionClass(\Composer\Autoload\ClassLoader::class);
-						$path = dirname($reflection->getFileName(), 3);
-					endif;
-				endif;
+				$path = self::pathRoot();
 			endif;
 			
 			if (is_null($path))
-				throw new RootPathUnknown('could not determine root directory from PATH_ROOT or Composer');
+                throw new RootPathUnknown('could not determine root directory');
 			
 			if (!file_exists($path))
 				throw new RootPathUknown('root path does not exist');
@@ -50,8 +43,32 @@
 			if (!is_readable($path))
 				throw new RootPathUnknown('root path is not readable');
 			
-			define('PATH_ROOT', $path);
-				
+            define('PATH_ROOT', $path);
+			
+            return $path;
+		}
+		 
+		/**
+		 * Setup application filesystem root path.
+		 *
+		 * Root path is stored as a defined() constant. If it is not yet defined
+		 * then it is determined by using ReflectionClass on Composer's ClassLoader class
+		 * filename to calculate the root path relative to it.
+		 *
+		 * @throws RootPathUnknown
+		 */
+		static function pathRoot()
+		{
+            if (defined('PATH_ROOT')):
+                $path = PATH_ROOT;
+            elseif (class_exists('\Composer\AutoLoad\ClassLoader')):
+                $reflection = new \ReflectionClass(\Composer\Autoload\ClassLoader::class);
+                $path = dirname($reflection->getFileName(), 3);
+            endif;
+			
+            if (is_null($path))
+                throw new RootPathUnknown('could not determine root directory from PATH_ROOT or Composer');
+			
 			return $path;
 		}
 		
@@ -63,11 +80,11 @@
 		 */
 		static function pathLocal()
 		{
-			if (defined('PATH_LOCAL')):
-				return PATH_LOCAL;
+			if (self::PATH_LOCAL):
+				return self::PATH_LOCAL;
 			endif;
 			
-			return self::$pathroot.'/local';
+			return PATH_ROOT.'/local';
 		}
 		
 		/**

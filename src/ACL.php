@@ -23,7 +23,7 @@
 		const none = 0;
 		const select = 1;   // User has read/view/select permission for items belonging to himself
 		const update = 2;   // User has write/save/update permission for items belonging to himeself
-		const create = 4;   // User has write/create/insert permission for items belonging to himself
+		const insert = 4;   // User has write/create/insert permission for items belonging to himself
 		const delete = 8;   // User has delete permission for items belonging to himself
 		const manager = 16;   // User has the above permissions for items belonging to users for who he is a manager
 		const admin = 32;	// User has the above permissions for all items
@@ -64,7 +64,7 @@
 		static function check($key, $permissions, $userId=null)
 		{
 			$userId = $userId ?? $_SESSION['user']['id'] ?? null;
-			if (is_null($userId)) throw new PermissionsException('could not get user ID to check permissions');
+			if (is_null($userId)) throw new PermissionException('could not get user ID to check permissions');
 			
 			// Check permissions with session (avoids potentially hundreds of database lookups)
 			if ($session = ($_SESSION['user']['permissions'] ?? null)):
@@ -82,23 +82,15 @@
 			// Check permissions with database lookup
 			else:
 				// Check if user is superuser
-				$count = DB::query("SELECT count(*) AS count FROM public.users WHERE id=$1 AND superuser IS TRUE", $userId)
-					->single()->count;
-				if ($count == 1)
+				$superuser = DB::query("SELECT count(*) FROM users WHERE id=$1 AND superuser IS TRUE", $userId)->single()->count;
+				if ($superuser):
 					return true;
+				endif;
 				
-				$count = DB::query(<<<SQL
-					SELECT COUNT(*) AS count 
-					FROM public.acl_permissions AS p 
-						JOIN public.acl_keys AS k ON (p.key_id = k.id)
-						JOIN public.roles AS r ON (p.role_id = r.id)
-						JOIN public.users_roles AS ur ON (ur.role_id = r.id)
-						JOIN public.users AS u ON (ur.user_id = u.id)
-					WHERE k.key=$1 AND p.permissions & $2 = $2 AND u.id=$3
-					SQL, $key, $permissions, $userId)
-					->single()->count;
-				if ($count > 0)
+				$permitted = DB::query("SELECT public.permissions_check($1::text, $2::integer::bit(6), $3::uuid)", $key, $permissions, $userId)->single()->permissions_check;
+				if ($permitted):
 					return true;
+				endif;
 			endif;
 			
 			return false;
@@ -146,16 +138,18 @@
 		 */
 		static function users($key, $permissions)
 		{
-			$users = User::select(
-				"SELECT
-					u.id
-				FROM public.acl_permissions AS p
-					JOIN public.acl_keys AS k ON (p.key_id = k.id)
+			$users = DB::query(<<<SQL
+				SELECT
+					u.id,
+					u.email
+				FROM public.roles_permissions AS p
+					JOIN public.permissions AS k ON (p.key_id = k.id)
 					JOIN public.roles AS r ON (p.role_id = r.id)
 					JOIN public.users_roles AS ur ON (ur.role_id = r.id)
 					JOIN public.users AS u ON (ur.user_id = u.id)
-				WHERE k.key = $1 AND p.permissions & $2 = $3",
-				[$key, $permissions, $permissions]
+				WHERE k.id = $1 AND p.permissions & $2::integer::bit(6) = $2::integer::bit(6)
+				SQL,
+				$key, $permissions
 			);
 			
 			return $users;
@@ -168,6 +162,14 @@
 		{
 			$json = DB::query(
 				"WITH t_user AS (
+					SELECT u.id,
+						json_build_object(
+							'id', u.id,
+							'login', uu.login,
+							'email', u.email,
+							'name', u.name,
+							'superuser', u.superuser
+						) AS data
 					SELECT id FROM public.users WHERE id=$1
 				),
 				t_acl AS (
@@ -176,8 +178,8 @@
 							k.id AS key,
 							bit_or(p.permissions) AS permissions
 						FROM
-							public.acl_permissions AS p
-							JOIN public.acl_keys AS k ON (p.key_id = k.id)
+							public.roles_permissions AS p
+							JOIN public.permissions AS k ON (p.key_id = k.id)
 							JOIN public.roles AS r ON (p.role_id = r.id)
 							JOIN public.users_roles AS ur ON (ur.role_id = r.id)
 							JOIN public.users AS u ON (ur.user_id = u.id)
@@ -194,6 +196,7 @@
 					WHERE u.id = (SELECT id FROM t_user)
 				)
 				SELECT json_build_object(
+					'user', (SELECT data FROM t_user),
 					'roles', (SELECT data FROM t_roles),
 					'acl', (SELECT data FROM t_acl)
 				) AS data",

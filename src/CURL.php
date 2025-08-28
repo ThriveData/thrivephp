@@ -23,7 +23,7 @@
 			public ?bool $returntransfer = true,
 			public ?bool $follow = true,
 		) {
-			printf("CURL::__construct()\n");
+			Log::debug("CURL::__construct()\n");
 			
 			if (count($query) > 0):
 				$url = sprintf('%s?%s', $url, http_build_query($query));

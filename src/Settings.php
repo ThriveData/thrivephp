@@ -20,7 +20,11 @@
 		static function load(string $file, bool $silent)
 		{
 			if (is_readable($file)):
-				$data = json_decode(json: file_get_contents($file), associative: true, flags: JSON_THROW_ON_ERROR);
+				try {
+					$data = json_decode(json: file_get_contents($file), associative: true, flags: JSON_THROW_ON_ERROR);
+				} catch (\JsonException $e) {
+					throw new SettingsException(sprintf('file %s | $s', $file, $e->getMessage()), previous: $e);
+				}
 				if ($data):
 					self::$data = array_merge(self::$data, $data);
 				endif;

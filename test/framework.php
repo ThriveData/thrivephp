@@ -3,7 +3,7 @@
 	// Reuse the existing test autoloader and assertions.
 	require __DIR__.'/email-bootstrap.php';
 
-	use ThriveData\ThrivePHP\{ACL, DatabaseConnection, DatabaseForeignKeyViolation, Log, Response, Settings};
+	use ThriveData\ThrivePHP\{ACL, DB, DatabaseConnection, DatabaseForeignKeyViolation, Log, NoAuth, Response, Session, Settings};
 
 	$dsn = getenv('FRAMEWORK_TEST_DSN');
 	check((bool) $dsn, 'Set FRAMEWORK_TEST_DSN to an empty disposable PostgreSQL database.');
@@ -17,6 +17,19 @@
 		switch ($_GET['action'] ?? 'health'):
 			case 'redirect':
 				Response::redirect($_GET['url'], ...($_GET['values'] ?? []));
+				break;
+			case 'authenticate':
+				$_SESSION = [];
+				if (isset($_GET['session'])) $_SESSION['session']['id'] = $_GET['session'];
+				if (isset($_GET['uri'])) $_SERVER['REQUEST_URI'] = $_GET['uri'];
+				if (isset($_GET['missing_uri'])) unset($_SERVER['REQUEST_URI']);
+				try {
+					Session::authenticate(isset($_GET['no_redirect']) ? false : ($_GET['login'] ?? '/login'));
+					print 'authenticated';
+				} catch (NoAuth $e) {
+					http_response_code(401);
+					print $e->getMessage();
+				}
 				break;
 			default:
 				print 'ready';
@@ -55,6 +68,10 @@
 		INSERT INTO public.roles_permissions VALUES
 			('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000021', B'000001'),
 			('00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000021', B'000010');
+		CREATE TABLE public.users_sessions (id uuid PRIMARY KEY, expires_when timestamptz);
+		INSERT INTO public.users_sessions VALUES
+			('00000000-0000-0000-0000-000000000031', now() + interval '1 hour'),
+			('00000000-0000-0000-0000-000000000032', now() - interval '1 hour');
 		SQL) !== false, 'Could not create database fixtures');
 	pg_close($connection);
 
@@ -137,6 +154,30 @@
 			$expected = isset($case['values']) ? '/orders/abc?value=7' : $case['url'];
 			check($result['code'] === 302 && $result['headers']['location'] === $expected, 'Redirect changed the URL');
 		endforeach;
+		$active = '00000000-0000-0000-0000-000000000031';
+		$expired = '00000000-0000-0000-0000-000000000032';
+		$missing = '00000000-0000-0000-0000-000000000033';
+		$uri = '/orders?q=hello%20world&sort=name';
+		foreach ([null, $expired, $missing] as $session):
+			foreach (['/login', '/signin?tenant=one', '/signin?tenant=one#form', '/signin?', '/signin?tenant=one&'] as $login):
+				$result = $request(['action' => 'authenticate', 'session' => $session, 'login' => $login, 'uri' => $uri]);
+				check($result['code'] === 302, 'Authentication failure did not redirect');
+				$url = parse_url($result['headers']['location']);
+				parse_str($url['query'], $query);
+				check($query['referrer'] === $uri, 'Authentication lost the original request URI');
+				check($url['path'] === parse_url($login, PHP_URL_PATH), 'Custom login path was lost');
+				if (str_contains($login, 'tenant=')) check($query['tenant'] === 'one', 'Existing login query was lost');
+				if (str_contains($login, '#')) check($url['fragment'] === 'form', 'Login fragment was lost');
+			endforeach;
+			$result = $request(['action' => 'authenticate', 'session' => $session, 'no_redirect' => 1]);
+			check($result['code'] === 401 && !isset($result['headers']['location']), 'Disabled redirects should throw NoAuth');
+			check($result['body'] === ($session === null ? 'session is not set' : 'could not update user session'), 'Authentication exception message differs');
+		endforeach;
+		$result = $request(['action' => 'authenticate', 'missing_uri' => 1]);
+		check($result['headers']['location'] === '/login?referrer=%2F', 'Missing request URI should default to /');
+		$result = $request(['action' => 'authenticate', 'session' => $active]);
+		check($result['code'] === 200 && $result['body'] === 'authenticated', 'Valid session was rejected');
+		check(DB::query('SELECT expires_when > now() + interval \'23 hours\' AS extended FROM public.users_sessions WHERE id=$1', $active)->single()->extended, 'Valid session was not extended');
 	} finally {
 		proc_terminate($server);
 		proc_close($server);

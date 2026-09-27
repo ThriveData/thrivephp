@@ -27,15 +27,15 @@
 			$_SESSION = array();
 		}
 		
-		static function authenticate()
+		/** Redirect on authentication failure, or throw NoAuth when $redirect is false or null. */
+		static function authenticate($redirect = '/login')
 		{
 			Log::debug('authenticating');
 			
 			self::start();
 			
 			if(!isset($_SESSION['session']['id'])):
-				Log::debug('session is not set, redirecting to login', debug_backtrace());
-				Response::redirect("/login?referrer={$_SERVER['REQUEST_URI']}");
+				self::authenticationFailure($redirect, 'session is not set');
 			endif;
 			
 			try {
@@ -51,8 +51,28 @@
 						$e->getMessage()
 					)
 				);
-				Response::redirect('/login');
+				self::authenticationFailure($redirect, 'could not update user session');
 			}
+		}
+
+		private static function authenticationFailure($redirect, string $message)
+		{
+			Log::debug($message);
+			if ($redirect):
+				$parts = explode('#', $redirect, 2);
+				$url = $parts[0];
+				$separator = str_contains($url, '?') ? '&' : '?';
+				if (str_ends_with($url, '?') || str_ends_with($url, '&')):
+					$separator = '';
+				endif;
+				$url .= $separator.'referrer='.urlencode($_SERVER['REQUEST_URI'] ?? '/');
+				if (isset($parts[1])):
+					$url .= '#'.$parts[1];
+				endif;
+				Response::redirect($url);
+			endif;
+
+			throw new NoAuth($message);
 		}
 		
 		static function recent($class, $value)

@@ -67,9 +67,9 @@
 			if (is_null($userId)) throw new PermissionException('could not get user ID to check permissions');
 			
 			// Check permissions with session (avoids potentially hundreds of database lookups)
-			if ($session = ($_SESSION['user']['permissions'] ?? null)):
-				$superuser = $session['superuser'] ?? null;
-				$grants = $session['acl'][$key] ?? null;
+			if ($userId === ($_SESSION['user']['id'] ?? null) && is_array($_SESSION['permissions'] ?? null)):
+				$superuser = $_SESSION['user']['superuser'] ?? null;
+				$grants = $_SESSION['permissions'][$key] ?? 0;
 				
 				if ($superuser):
 					return true;
@@ -160,23 +160,23 @@
 		 */
 		static function session($user_id)
 		{
-			$json = DB::query(
-				"WITH t_user AS (
+			$json = DB::query(<<<'SQL'
+				WITH t_user AS (
 					SELECT u.id,
 						json_build_object(
 							'id', u.id,
-							'login', uu.login,
+							'login', u.login,
 							'email', u.email,
 							'name', u.name,
 							'superuser', u.superuser
 						) AS data
-					SELECT id FROM public.users WHERE id=$1
+					FROM public.users AS u WHERE u.id=$1
 				),
 				t_acl AS (
 					WITH t AS(
 						SELECT
 							k.id AS key,
-							bit_or(p.permissions) AS permissions
+							bit_or(p.permissions)::integer AS permissions
 						FROM
 							public.roles_permissions AS p
 							JOIN public.permissions AS k ON (p.key_id = k.id)
@@ -198,9 +198,9 @@
 				SELECT json_build_object(
 					'user', (SELECT data FROM t_user),
 					'roles', (SELECT data FROM t_roles),
-					'acl', (SELECT data FROM t_acl)
-				) AS data",
-				$user_id
+					'permissions', (SELECT data FROM t_acl)
+				) AS data
+				SQL, $user_id
 			)->single(json: 'array')->data;
 			
 			return $json;

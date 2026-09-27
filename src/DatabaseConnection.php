@@ -135,6 +135,8 @@
 						throw new DatabaseExclusionViolation(...$fields); break;
 					case 'invalid_text_representation':
 						throw new DatabaseInvalidTextRepresentation(...$fields); break;
+					case 'foreign_key_violation':
+						throw new DatabaseForeignKeyViolation(...$fields); break;
 					default:
 						throw new DatabaseServerException(...$fields);
 				endswitch;

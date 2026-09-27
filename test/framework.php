@@ -3,7 +3,7 @@
 	// Reuse the existing test autoloader and assertions.
 	require __DIR__.'/email-bootstrap.php';
 
-	use ThriveData\ThrivePHP\{ACL, DatabaseConnection, DatabaseForeignKeyViolation, Settings};
+	use ThriveData\ThrivePHP\{ACL, DatabaseConnection, DatabaseForeignKeyViolation, Log, Settings};
 
 	$dsn = getenv('FRAMEWORK_TEST_DSN');
 	check((bool) $dsn, 'Set FRAMEWORK_TEST_DSN to an empty disposable PostgreSQL database.');
@@ -64,5 +64,21 @@
 	check(ACL::check('unknown', ACL::delete), 'A cached superuser was denied');
 	$_SESSION = [];
 	check(ACL::check($key, ACL::delete, $admin), 'Database superuser lookup failed');
+
+	Settings::$data['log']['level'] = 'debug';
+	ob_start();
+	Log::trace('hidden', []);
+	check(ob_get_clean() === '', 'Trace should be suppressed at debug level');
+	Settings::$data['log']['level'] = 'trace';
+	ob_start();
+	Log::trace('visible', []);
+	check(ob_get_clean() === "TRACE: visible\n", 'Trace should use the TRACE severity');
+	$_SESSION = ['user' => ['id' => $user], 'permissions' => []];
+	ob_start();
+	ACL::check($key, ACL::select);
+	$trace = ob_get_clean();
+	check(str_contains($trace, 'found session permissions') && str_contains($trace, 'check failed'), 'ACL trace should explain a denial');
+	Settings::$data['log']['level'] = 'fatal';
+	$_SESSION = [];
 
 	print "Framework integration tests passed.\n";

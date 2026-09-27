@@ -64,35 +64,44 @@
 		static function check($key, $permissions, $userId=null)
 		{
 			$userId = $userId ?? $_SESSION['user']['id'] ?? null;
+			$trace = sprintf('acl::check(key: %s, permissions: %s, userId: %s)', $key, $permissions, $userId);
+			Log::trace($trace);
 			if (is_null($userId)) throw new PermissionException('could not get user ID to check permissions');
 			
 			// Check permissions with session (avoids potentially hundreds of database lookups)
 			if ($userId === ($_SESSION['user']['id'] ?? null) && is_array($_SESSION['permissions'] ?? null)):
 				$superuser = $_SESSION['user']['superuser'] ?? null;
 				$grants = $_SESSION['permissions'][$key] ?? 0;
+				Log::trace($trace.' | found session permissions');
 				
 				if ($superuser):
+					Log::trace($trace.' | is superuser');
 					return true;
 				endif;
 				
 				if (($grants & $permissions) == $permissions):
+					Log::trace($trace.' | grant found');
 					return true;
 				endif;
 				
 			// Check permissions with database lookup
 			else:
+				Log::trace($trace.' | session permissions not found for user');
 				// Check if user is superuser
 				$superuser = DB::query("SELECT count(*) FROM users WHERE id=$1 AND superuser IS TRUE", $userId)->single()->count;
 				if ($superuser):
+					Log::trace($trace.' | is superuser');
 					return true;
 				endif;
 				
 				$permitted = DB::query("SELECT public.permissions_check($1::text, $2::integer::bit(6), $3::uuid)", $key, $permissions, $userId)->single()->permissions_check;
 				if ($permitted):
+					Log::trace($trace.' | grant found');
 					return true;
 				endif;
 			endif;
 			
+			Log::trace($trace.' | check failed');
 			return false;
 		}
 		

@@ -56,6 +56,11 @@
 			return $fmt;
 		}
 		
+		static function trace($message, $backtrace=null)
+		{
+			self::log(self::TRACE, $message, $backtrace ?? debug_backtrace());
+		}
+
 		static function debug($message, $backtrace=null)
 		{
 			self::log(self::DEBUG, $message, $backtrace ?? debug_backtrace());

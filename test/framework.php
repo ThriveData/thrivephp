@@ -31,6 +31,14 @@
 					print $e->getMessage();
 				}
 				break;
+			case 'failure':
+				if (isset($_GET['code'])):
+					Response::failure((int) $_GET['code'], ['X-Test' => 'failure']);
+				else:
+					Response::failure();
+				endif;
+				print json_encode(Response::$headers);
+				break;
 			default:
 				print 'ready';
 		endswitch;
@@ -178,6 +186,9 @@
 		$result = $request(['action' => 'authenticate', 'session' => $active]);
 		check($result['code'] === 200 && $result['body'] === 'authenticated', 'Valid session was rejected');
 		check(DB::query('SELECT expires_when > now() + interval \'23 hours\' AS extended FROM public.users_sessions WHERE id=$1', $active)->single()->extended, 'Valid session was not extended');
+		check($request(['action' => 'failure'])['code'] === 400, 'Default failure status differs');
+		$result = $request(['action' => 'failure', 'code' => 422]);
+		check($result['code'] === 422 && json_decode($result['body'], true) === ['X-Test' => 'failure'], 'Explicit failure status or stored headers differ');
 	} finally {
 		proc_terminate($server);
 		proc_close($server);

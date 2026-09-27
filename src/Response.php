@@ -23,6 +23,14 @@
 			http_response_code(self::$code);
 		}
 		
+		static function failure(int $code=400, ?array $headers=[])
+		{
+			self::$code = $code;
+			self::$headers = $headers;
+
+			http_response_code(self::$code);
+		}
+
 		/** Format the URL only when values are supplied; literal URLs may contain percent escapes. */
 		static function redirect(string $url, ...$values)
 		{

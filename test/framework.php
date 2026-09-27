@@ -3,7 +3,7 @@
 	// Reuse the existing test autoloader and assertions.
 	require __DIR__.'/email-bootstrap.php';
 
-	use ThriveData\ThrivePHP\{ACL, DatabaseConnection, DatabaseForeignKeyViolation, Log, Settings};
+	use ThriveData\ThrivePHP\{ACL, DatabaseConnection, DatabaseForeignKeyViolation, Log, Response, Settings};
 
 	$dsn = getenv('FRAMEWORK_TEST_DSN');
 	check((bool) $dsn, 'Set FRAMEWORK_TEST_DSN to an empty disposable PostgreSQL database.');
@@ -11,6 +11,18 @@
 		'pgsql' => ['connections' => ['default' => $dsn]],
 		'log' => ['level' => 'fatal'],
 	];
+
+	// This file also acts as the router for the test's local HTTP server.
+	if (PHP_SAPI === 'cli-server'):
+		switch ($_GET['action'] ?? 'health'):
+			case 'redirect':
+				Response::redirect($_GET['url'], ...($_GET['values'] ?? []));
+				break;
+			default:
+				print 'ready';
+		endswitch;
+		return;
+	endif;
 
 	$connection = new DatabaseConnection($dsn);
 	$connection->query('CREATE TEMP TABLE test_parent (id integer PRIMARY KEY)');
@@ -80,5 +92,55 @@
 	check(str_contains($trace, 'found session permissions') && str_contains($trace, 'check failed'), 'ACL trace should explain a denial');
 	Settings::$data['log']['level'] = 'fatal';
 	$_SESSION = [];
+
+	// Exercise real response headers and exit(), rather than mocking redirect().
+	$socket = stream_socket_server('tcp://127.0.0.1:0');
+	check($socket !== false, 'Could not allocate an HTTP port');
+	$address = stream_socket_get_name($socket, false);
+	fclose($socket);
+	$log = tmpfile();
+	$server = proc_open([PHP_BINARY, '-d', 'short_open_tag=1', '-S', $address, __FILE__], [0 => ['pipe', 'r'], 1 => $log, 2 => $log], $pipes);
+	check(is_resource($server), 'Could not start the PHP HTTP server');
+	fclose($pipes[0]);
+	$request = function (array $query) use ($address) {
+		$headers = [];
+		$curl = curl_init('http://'.$address.'/?'.http_build_query($query));
+		curl_setopt_array($curl, [
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_TIMEOUT => 5,
+			CURLOPT_HEADERFUNCTION => function ($curl, $line) use (&$headers) {
+				if (str_contains($line, ':')):
+					[$name, $value] = explode(':', $line, 2);
+					$headers[strtolower($name)] = trim($value);
+				endif;
+				return strlen($line);
+			},
+		]);
+		$body = curl_exec($curl);
+		return ['code' => curl_getinfo($curl, CURLINFO_RESPONSE_CODE), 'headers' => $headers, 'body' => $body];
+	};
+	try {
+		$ready = false;
+		for ($i = 0; $i < 100; $i++):
+			if ($request([])['body'] === 'ready'):
+				$ready = true;
+				break;
+			endif;
+			usleep(50000);
+		endfor;
+		check($ready, 'HTTP server did not become ready');
+		foreach ([
+			['url' => '/search?q=hello%20world&next=%2Forders'],
+			['url' => '/orders/%s?value=%d', 'values' => ['abc', 7]],
+		] as $case):
+			$result = $request(['action' => 'redirect'] + $case);
+			$expected = isset($case['values']) ? '/orders/abc?value=7' : $case['url'];
+			check($result['code'] === 302 && $result['headers']['location'] === $expected, 'Redirect changed the URL');
+		endforeach;
+	} finally {
+		proc_terminate($server);
+		proc_close($server);
+		fclose($log);
+	}
 
 	print "Framework integration tests passed.\n";

@@ -23,10 +23,14 @@
 			http_response_code(self::$code);
 		}
 		
+		/** Format the URL only when values are supplied; literal URLs may contain percent escapes. */
 		static function redirect(string $url, ...$values)
 		{
+			if ($values):
+				$url = sprintf($url, ...$values);
+			endif;
 			Log::debug('redirecting to '.$url, debug_backtrace());
-			header(sprintf('Location: %s', sprintf($url, ...$values)), true, 302);
+			header(sprintf('Location: %s', $url), true, 302);
 			exit();
 		}
 		

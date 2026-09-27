@@ -3,7 +3,7 @@
 	// Reuse the existing test autoloader and assertions.
 	require __DIR__.'/email-bootstrap.php';
 
-	use ThriveData\ThrivePHP\{ACL, DB, DatabaseConnection, DatabaseForeignKeyViolation, Log, NoAuth, Response, Session, Settings};
+	use ThriveData\ThrivePHP\{ACL, Application, DB, DatabaseConnection, DatabaseForeignKeyViolation, Log, NoAuth, Response, Session, Settings};
 
 	$dsn = getenv('FRAMEWORK_TEST_DSN');
 	check((bool) $dsn, 'Set FRAMEWORK_TEST_DSN to an empty disposable PostgreSQL database.');
@@ -195,4 +195,10 @@
 		fclose($log);
 	}
 
-	print "Framework integration tests passed.\n";
+	define('PATH_ROOT', __DIR__);
+	$before = microtime(true);
+	Application::init();
+	restore_error_handler();
+	restore_exception_handler();
+	check(Application::$timestamp >= $before && Application::$timestamp <= microtime(true), 'Application start time was not recorded');
+	print "Framework integration tests passed. PostgreSQL queries and HTTP responses used real servers.\n";

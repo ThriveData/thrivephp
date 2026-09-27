@@ -6,11 +6,16 @@
 	 */
 	class Application
 	{
+		/** Application initialization time in seconds, including microseconds. */
+		static $timestamp = null;
+
 		/**
 		 * Setup application. Called by front controller.
 		 */
 		static function init()
 		{
+			self::$timestamp = microtime(true);
+
 			if (!defined('PATH_ROOT')):
 				self::setPathRoot();
 			endif;
